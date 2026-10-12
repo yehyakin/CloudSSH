@@ -292,11 +292,18 @@ export async function handleGitHubAuth(request: Request, env: Env): Promise<Resp
     state,
   });
 
-  return new Response(null, {
-    status: 302,
+  const githubUrl = `https://github.com/login/oauth/authorize?${params}`;
+
+  // iOS Safari bounce-tracking 保护会拦截 302 响应上的 Set-Cookie，
+  // 导致回调时 state 校验失败。改用中间页：先在第一方页面用 JS 种 cookie，
+  // 再跳转 GitHub，cookie 在正常页面上下文中设置，不易被拦截。
+  // 注意：JS 无法设置 HttpOnly cookie，这里改用非 HttpOnly（state 只有 10 分钟有效期，风险可接受）。
+  const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>正在跳转到 GitHub…</title></head><body style="background:#0a0a0a;color:#888;font-family:system-ui;text-align:center;padding-top:40vh"><p>正在跳转到 GitHub 登录…</p><script>document.cookie="oauth_state=${state}; Path=/; Secure; SameSite=Lax; Max-Age=600";window.location.href=${JSON.stringify(githubUrl)};</script><noscript><p>请启用 JavaScript 后重试，或<a href="${githubUrl.replace(/"/g, '&quot;')}">点此手动跳转</a>。</p></noscript></body></html>`;
+
+  return new Response(html, {
     headers: {
-      Location: `https://github.com/login/oauth/authorize?${params}`,
-      'Set-Cookie': `oauth_state=${state}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=600`,
+      'Content-Type': 'text/html; charset=utf-8',
+      'Cache-Control': 'no-store',
     },
   });
 }
